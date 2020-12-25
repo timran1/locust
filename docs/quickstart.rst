@@ -1,182 +1,174 @@
+.. _quickstart:
+
 =============
 Quick start
 =============
 
+In Locust you define your user behaviour in Python code. You then use the ``locust`` command and (optionally) 
+its web interface to spawn and simulate a number of those users while gathering request statistics.
+
 Example locustfile.py
 =====================
 
-Below is a quick little example of a simple **locustfile.py**:
-
-
 .. code-block:: python
 
-    from locust import HttpLocust, TaskSet, between
+    import time
+    from locust import HttpUser, task, between
 
-    def login(l):
-        l.client.post("/login", {"username":"ellen_key", "password":"education"})
+    class QuickstartUser(HttpUser):
+        wait_time = between(1, 2.5)
 
-    def logout(l):
-        l.client.post("/logout", {"username":"ellen_key", "password":"education"})
-
-    def index(l):
-        l.client.get("/")
-
-    def profile(l):
-        l.client.get("/profile")
-
-    class UserBehavior(TaskSet):
-        tasks = {index: 2, profile: 1}
-
+        @task
+        def hello_world(self):
+            self.client.get("/hello")
+            self.client.get("/world")
+        
+        @task(3)
+        def view_items(self):
+            for item_id in range(10):
+                self.client.get(f"/item?id={item_id}", name="/item")
+                time.sleep(1)
+        
         def on_start(self):
-            login(self)
-
-        def on_stop(self):
-            logout(self)
-
-    class WebsiteUser(HttpLocust):
-        task_set = UserBehavior
-        wait_time = between(5.0, 9.0)
+            self.client.post("/login", json={"username":"foo", "password":"bar"})
 
 
-Here we define a number of Locust tasks, which are normal Python callables that take one argument 
-(a :py:class:`Locust <locust.core.Locust>` class instance). These tasks are gathered under a
-:py:class:`TaskSet <locust.core.TaskSet>` class in the *tasks* attribute. Then we have a
-:py:class:`HttpLocust <locust.core.HttpLocust>` class which represents a user, where we define how
-long a simulated user should wait between executing tasks, as well as what
-:py:class:`TaskSet <locust.core.TaskSet>` class should define the user's \"behaviour\". 
-:py:class:`TaskSet <locust.core.TaskSet>` classes can be nested.
-
-The :py:class:`HttpLocust <locust.core.HttpLocust>` class inherits from the
-:py:class:`Locust <locust.core.Locust>` class, and it adds a client attribute which is an instance of
-:py:class:`HttpSession <locust.clients.HttpSession>` that can be used to make HTTP requests.
-
-By default, we stop looking for proxy settings to improve performance. If you really want the test requests
-go through a HTTP proxy, you can inherit from the :py:class:`HttpLocust <locust.core.HttpLocust>` class and
-set the trust_env field to True. For further details, refer to the documentation of requests.
-
-Another way we could declare tasks, which is usually more convenient, is to use the
-``@task`` decorator. The following code is equivalent to the above:
+.. rubric:: Let's break it down
 
 .. code-block:: python
 
-    from locust import HttpLocust, TaskSet, task, between
+    import time
+    from locust import HttpUser, task, between
 
-    class UserBehaviour(TaskSet):
-        def on_start(self):
-            """ on_start is called when a Locust start before any task is scheduled """
-            self.login()
-
-        def on_stop(self):
-            """ on_stop is called when the TaskSet is stopping """
-            self.logout()
-        
-        def login(self):
-            self.client.post("/login", {"username":"ellen_key", "password":"education"})
-        
-        def logout(self):
-            self.client.post("/logout", {"username":"ellen_key", "password":"education"})
-        
-        @task(2)
-        def index(self):
-            self.client.get("/")
-        
-        @task(1)
-        def profile(self):
-            self.client.get("/profile")
-    
-    class WebsiteUser(HttpLocust):
-        task_set = UserBehaviour
-        wait_time = between(5, 9)
-
-The :py:class:`Locust <locust.core.Locust>` class (as well as :py:class:`HttpLocust <locust.core.HttpLocust>`
-since it's a subclass) also allows one to specify the wait time between the execution of tasks 
-(:code:`wait_time = between(5, 9)`) as well as other user behaviours.
-With the between function the time is randomly chosen uniformly between the specified min and max values, 
-but any user-defined time distributions can be used by setting *wait_time* to any arbitrary function. 
-For example, for an exponentially distributed wait time with average of 1 second:
+A locust file is just a normal Python module, it can import code from other files or packages.
 
 .. code-block:: python
 
-    import random
+    class QuickstartUser(HttpUser):
+
+Here we define a class for the users that we will be simulating. It inherits from 
+:py:class:`HttpUser <locust.HttpUser>` which gives each user a ``client`` attribute,
+which is an instance of :py:class:`HttpSession <locust.clients.HttpSession>`, that 
+can be used to make HTTP requests to the target system that we want to load test. When a test starts, 
+locust will create an instance of this class for every user that it simulates, and each of these 
+users will start running within their own green gevent thread.
+
+.. code-block:: python
+
+    wait_time = between(1, 2.5)
+
+Our class defines a ``wait_time`` that will make the simulated users wait between 1 and 2.5 seconds after each task (see below)
+is executed. For more info see :ref:`wait-time`.
+
+.. code-block:: python
+
+    @task
+    def hello_world(self):
+        ...
+
+Methods decorated with ``@task`` are the core of your locust file. For every running user, 
+Locust creates a greenlet (micro-thread), that will call those methods.
+
+.. code-block:: python
+
+    @task
+    def hello_world(self):
+        self.client.get("/hello")
+        self.client.get("/world")
     
-    class WebsiteUser(HttpLocust):
-        task_set = UserBehaviour
-        wait_time = lambda self: random.expovariate(1)*1000
+    @task(3)
+    def view_items(self):
+    ...
+
+We've declared two tasks by decorating two methods with ``@task``, one of which has been given a higher weight (3). 
+When our ``QuickstartUser`` runs it'll pick one of the declared tasks - in this case either ``hello_world`` or 
+``view_items`` - and execute it. Tasks are picked at random, but you can give them different weighting. The above 
+configuration will make Locust three times more likely to pick ``view_items`` than ``hello_world``. When a task has 
+finished executing, the User will then sleep during it's wait time (in this case between 1 and 2.5 seconds). 
+After it's wait time it'll pick a new task and keep repeating that.
+
+Note that only methods decorated with ``@task`` will be picked, so you can define your own internal helper methods any way you like.
+
+.. code-block:: python
+
+    self.client.get("/hello")
+
+The ``self.client`` attribute makes it possible to make HTTP calls that will be logged by Locust. For information on how 
+to make other kinds of requests, validate the response, etc, see 
+`Using the HTTP Client <writing-a-locustfile.html#using-the-http-client>`_.
+
+.. code-block:: python
+    :emphasize-lines: 4,4
+
+    @task(3)
+    def view_items(self):
+        for item_id in range(10)
+            self.client.get(f"/item?id={item_id}", name="/item")
+            time.sleep(1)
+
+In the ``view_items`` task we load 10 different URLs by using a variable query parameter. 
+In order to not get 10 separate entries in Locust's statistics - since the stats is grouped on the URL - we use 
+the :ref:`name parameter <name-parameter>` to group all those requests under an entry named ``"/item"`` instead.
+
+.. code-block:: python
+
+    def on_start(self):
+        self.client.post("/login", json={"username":"foo", "password":"bar"})
+
+Additionally we've declared an `on_start` method. A method with this name will be called for each simulated 
+user when they start. For more info see :ref:`on-start-on-stop`.
 
 
 Start Locust
 ============
 
-To run Locust with the above Locust file, if it was named *locustfile.py* and located in the current working
-directory, we could run:
+Put the above code in a file named *locustfile.py* in your current directory and run:
 
 .. code-block:: console
 
     $ locust
 
 
-If the Locust file is located under a subdirectory and/or named different than *locustfile.py*, specify
-it using ``-f``:
+If your Locust file is located somewhere else, you can specify it using ``-f``
 
 .. code-block:: console
 
     $ locust -f locust_files/my_locust_file.py
 
-
-To run Locust distributed across multiple processes we would start a master process by specifying
-``--master``:
-
-.. code-block:: console
-
-    $ locust -f locust_files/my_locust_file.py --master
-
-
-and then we would start an arbitrary number of slave processes:
-
-.. code-block:: console
-
-    $ locust -f locust_files/my_locust_file.py --slave
-
-
-If we want to run Locust distributed on multiple machines we would also have to specify the master host when
-starting the slaves (this is not needed when running Locust distributed on a single machine, since the master
-host defaults to 127.0.0.1):
-
-.. code-block:: console
-
-    $ locust -f locust_files/my_locust_file.py --slave --master-host=192.168.0.100
-
-
-Parameters can also be set in a `config file <https://github.com/bw2/ConfigArgParse#config-file-syntax>`_ (locust.conf or ~/.locust.conf) or in env vars, prefixed by LOCUST\_
-
-For example: (this will do the same thing as the previous command)
-
-.. code-block::
-
-    # locust.conf in current directory
-    locustfile locust_files/my_locust_file.py
-    slave
-
-
-.. code-block:: console
-
-    $ LOCUST_MASTER_HOST=192.168.0.100 locust
-
-
 .. note::
 
-    To see all available options type: ``locust --help``
+    To see all available options type: ``locust --help`` or check :ref:`configuration`
 
-
-Open up Locust's web interface
+Locust's web interface
 ==============================
 
 Once you've started Locust using one of the above command lines, you should open up a browser
-and point it to http://127.0.0.1:8089 (if you are running Locust locally). Then you should be
-greeted with something like this:
+and point it to http://127.0.0.1:8089. Then you should be greeted with something like this:
 
 .. image:: images/webui-splash-screenshot.png
 
-If you :ref:`run Locust in Step Load Mode <running-locust-in-step-load-mode>`, then you should be greeted with Locust UI like this:
+Fill out the form and try it out! (but note that if you don't change your locust file to match your actual target system you'll mostly get error responses)
 
-.. image:: images/webui-stepload-screenshot.png
+.. image:: images/webui-running-statistics.png
+
+.. image:: images/webui-running-charts.png
+
+
+More options
+============
+
+To run Locust distributed across multiple Python processes or machines, you can start a single Locust master process 
+with the ``--master`` command line parameter, and then any number of Locust worker processes using the ``--worker`` 
+command line parameter. See :ref:`running-locust-distributed` for more info.
+
+To start tests directly, without using the web interface, use ``--headless``. 
+
+Parameters can also be set through :ref:`environment variables <environment-variables>`, or in a
+:ref:`config file <configuration-file>`.
+
+To add/remove users during a headless run press w or W (1, 10) to spawn users and s or S to stop(1, 10).
+
+How to write a *real* locust file?
+""""""""""""""""""""""""""""""""""
+
+The above example was just a small introduction, see :ref:`writing-a-locustfile` for more info.

@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Locust</title>
-    <link rel="stylesheet" type="text/css" href="./static/style.css?v={{ version }}" media="screen">
+    <link rel="stylesheet" type="text/css" href="./static/css/application.css?v={{ version }}" media="screen">
     <link rel="shortcut icon" href="./static/img/favicon.ico" type="image/x-icon"/>
 </head>
 <body class="{{state}}">
@@ -24,13 +24,13 @@
                     <div class="user_count">
                         <span id="userCount">{{user_count}}</span> users
                     </div>
-                    <a href="#" class="new_test" id="new_test">New test</a>
-                    <a href="#" class="edit_test">Edit</a>
+                    <a href="#" class="new-test" id="new-test">New test</a>
+                    <a href="#" class="edit-test" id="edit-test">Edit</a>
                 </div>
                 {% if is_distributed %}
-                    <div class="top_box box_slaves" id="box_slaves">
-                        <div class="label">SLAVES</div>
-                        <div class="value" id="slaveCount">{{slave_count}}</div>
+                    <div class="top_box box_workers" id="box_workers">
+                        <div class="label">WORKERS</div>
+                        <div class="value" id="workerCount">{{worker_count}}</div>
                     </div>
                 {% endif %}
                 <div class="top_box box_rps box_running" id="box_rps">
@@ -49,139 +49,153 @@
             <div style="clear:both;"></div>
         </div>
     </div>
-
-    <div class="main">
-        <div class="start" id="start">
+    
+    <div class="dialogs">
+        <div class="dialog start" id="start">
             <div style="position:relative;">
                 <a href="#" class="close_link">Close</a>
             </div>
             <div class="padder">
-                <h2>Start new Locust swarm</h2>
+                <h2>Start new load test</h2>
                 <form action="./swarm" method="POST" id="swarm_form">
-                    <label for="locust_count">Number of total users to simulate</label>
-                    <input type="text" name="locust_count" id="locust_count" class="val" /><br>
-                    <label for="hatch_rate">Hatch rate <span style="color:#8a8a8a;">(users spawned/second)</span></label>
-                    <input type="text" name="hatch_rate" id="hatch_rate" class="val" /><br>
+                    {% if is_shape %}
+                        <label for="user_count">Number of total users to simulate</label>
+                        <input type="text" name="user_count" id="user_count" class="val_disabled" value="-" disabled="disabled" title="Disabled for tests using LoadTestShape class"/><br>
+                        <input type="hidden" name="user_count" id="user_count" value="0"/><br>
+                        <label for="spawn_rate">Hatch rate <span style="color:#8a8a8a;">(users spawned/second)</span></label>
+                        <input type="text" name="spawn_rate" id="spawn_rate" class="val_disabled" value="-" disabled="disabled" title="Disabled for tests using LoadTestShape class"/><br>
+                        <input type="hidden" name="spawn_rate" id="spawn_rate" value="0"/><br>
+                    {% else %}
+                        <label for="user_count">Number of total users to simulate</label>
+                        <input type="text" name="user_count" id="user_count" class="val" value="{{ num_users or "" }}"/><br>
+                        <label for="spawn_rate">Spawn rate <span style="color:#8a8a8a;">(users spawned/second)</span></label>
+                        <input type="text" name="spawn_rate" id="spawn_rate" class="val" value="{{ spawn_rate or "" }}"/><br>
+                    {% endif %}
                     <label for="host">
-                        Host
+                        Host <span style="color:#8a8a8a;">(e.g. http://www.example.com)</span>
                         {% if override_host_warning %}
-                            <span style="color:#8a8a8a; font-size:12px;">(setting this will override the host on all Locust classes)</span></label>
+                            <span style="color:#8a8a8a; font-size:12px;">(setting this will override the host on all User classes)</span></label>
                         {% endif %}
                     </label>
-                    <input type="text" name="host" id="host" class="val" autocapitalize="off" autocorrect="off" value="{{ host  or ""}}"/><br>
-                    {% if is_step_load %}
-                    <label for="step_locust_count">Number of users to increase by step</label>
-                    <input type="text" name="step_locust_count" id="step_locust_count" class="val" /><br>
-                    <label for="step_duration">Step duration <span style="color:#8a8a8a;">(300s, 20m, 3h, 1h30m, etc.)</span></label>
-                    <input type="text" name="step_duration" id="step_duration" class="val" /><br>
-                    {% endif %}
+                    <input type="text" name="host" id="host" class="val" autocapitalize="off" autocorrect="off" value="{{ host  or "" }}"/><br>
                     <button type="submit">Start swarming</button>
                 </form>
                 <div style="clear:right;"></div>
             </div>
         </div>
 
-        <div class="edit" id="edit">
+        <div class="dialog edit" id="edit">
             <div style="position:relative;">
                 <a href="#" class="close_link">Close</a>
             </div>
             <div class="padder">
-                <h2>Change the locust count</h2>
+                <h2>Edit running load test</h2>
                 <form action="./swarm" method="POST" id="edit_form">
-                    <label for="locust_count">Number of users to simulate</label>
-                    <input type="text" name="locust_count" id="new_locust_count" class="val" /><br>
-                    <label for="hatch_rate">Hatch rate <span style="color:#8a8a8a;">(users spawned/second)</span></label>
-                    <input type="text" name="hatch_rate" id="new_hatch_rate" class="val" /><br>
-                    {% if is_step_load %}
-                    <label for="step_locust_count">Number of users to increase by step</label>
-                    <input type="text" name="step_locust_count" id="step_locust_count" class="val" /><br>
-                    <label for="step_duration">Step duration <span style="color:#8a8a8a;">(300s, 20m, 3h, 1h30m, etc.)</span></label>
-                    <input type="text" name="step_duration" id="step_duration" class="val" /><br>
+                    {% if is_shape %}
+                        <label for="new_user_count">Number of users to simulate</label>
+                        <input type="text" name="user_count" id="new_user_count" class="val_disabled"  value="-" disabled="disabled" title="Disabled for tests using LoadTestShape class"/><br>
+                        <label for="spawn_rate">Spawn rate <span style="color:#8a8a8a;">(users spawned or stopped per second)</span></label>
+                        <input type="text" name="spawn_rate" id="new_spawn_rate" class="val_disabled"  value="-" disabled="disabled" title="Disabled for tests using LoadTestShape class"/><br>
+                    {% else %}
+                        <label for="new_user_count">Number of users to simulate</label>
+                        <input type="text" name="user_count" id="new_user_count" class="val"  value="{{ num_users or "" }}"/><br>
+                        <label for="spawn_rate">Spawn rate <span style="color:#8a8a8a;">(users to start per second (or stop))</span></label>
+                        <input type="text" name="spawn_rate" id="new_spawn_rate" class="val"  value="{{ spawn_rate or "" }}"/><br>
                     {% endif %}
-                    <button type="submit">Start swarming</button>
+                    {% if is_shape %}
+                        <button type="submit" disabled>Start swarming</button>
+                    {% else %}
+                        <button type="submit">Start swarming</button>
+                    {% endif %}
                 </form>
                 <div style="clear:right;"></div>
             </div>
         </div>
-
-        <div class="status" id="status">
-            <nav class="menu">
-                <ul class="tabs container">
-                    <li><a href="#">Statistics</a></li>
-                    <li><a href="#" class="chart-tab-link">Charts</a></li>
-                    <li><a href="#">Failures</a></li>
-                    <li><a href="#">Exceptions</a></li>
-                    <li><a href="#">Download Data</a></li>
-                    {% if is_distributed %}
-                    <li><a href="#">Slaves</a></li>
-                    {% endif %}
-                </ul>
-            </nav>
-            <div class="panes container">
-                <div style="display:none;">
-                    <table id="stats" class="stats">
-                        <thead>
-                            <tr>
-                                <th class="stats_label" href="#" data-sortkey="method">Type</th>
-                                <th class="stats_label" href="#" data-sortkey="name">Name</th>
-                                <th class="stats_label numeric nowrap" href="#" data-sortkey="num_requests" title="Number of successful requests"># Requests</th>
-                                <th class="stats_label numeric nowrap" href="#" data-sortkey="num_failures" title="Number of failures"># Fails</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="median_response_time" title="Median response time">Median (ms)</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="ninetieth_response_time" title="Ninetieth percentile response time, because the response time greater than 100ms is rounded, you may see it greater than the max response time">90%ile (ms)</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="ninetyninth_response_time" title="Ninety Ninth percentile response time, because the response time greater than 100ms is rounded, you may see it greater than the max response time">99%ile (ms)</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="avg_response_time" title="Average response time">Average (ms)</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="min_response_time" title="Min response time">Min (ms)</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="max_response_time" title="Max response time">Max (ms)</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="avg_content_length" title="Average response size">Average size (bytes)</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="current_rps" title="Current number of requests per second">Current RPS</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="current_fail_per_sec" title="Current number of failures per second">Current Failures/s</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        </tbody>
-                    </table>
-                </div>
-                <div id="charts" style="display:none;">
-                    <div class="charts-container"></div>
-                    <p class="note">Note: There is no persistence of these charts, if you refresh this page, new charts will be created.</p>
-                </div>
-                <div style="display:none;">
-                    <table id="errors" class="stats">
-                        <thead>
-                            <th class="error_count stats_label" data-sortkey="1"># fails</th>
-                            <th class="stats_label" href="#" data-sortkey="method">Method</th>
+    </div>
+    
+    <div class="main" id="main">
+        <nav class="menu">
+            <ul class="tabs container">
+                <li><a href="#">Statistics</a></li>
+                <li><a href="#" class="chart-tab-link">Charts</a></li>
+                <li><a href="#">Failures</a></li>
+                <li><a href="#">Exceptions</a></li>
+                <li><a href="#">Download Data</a></li>
+                {% if is_distributed %}
+                    <li><a href="#">Workers</a></li>
+                {% endif %}
+                {% block extended_tabs %}{% endblock extended_tabs %}
+            </ul>
+        </nav>
+        <div class="panes container">
+            <div style="display:none;">
+                <table id="stats" class="stats">
+                    <thead>
+                        <tr>
+                            <th class="stats_label" href="#" data-sortkey="method">Type</th>
                             <th class="stats_label" href="#" data-sortkey="name">Name</th>
-                            <th class="error_type stats_label" data-sortkey="0">Type</th>
-                        </thead>
-                        <tbody>
-                        </tbody>
-                    </table>
+                            <th class="stats_label numeric nowrap" href="#" data-sortkey="num_requests" title="Number of successful requests"># Requests</th>
+                            <th class="stats_label numeric nowrap" href="#" data-sortkey="num_failures" title="Number of failures"># Fails</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="median_response_time" title="Median response time">Median (ms)</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="ninetieth_response_time" title="Ninetieth percentile response time, because the response time greater than 100ms is rounded, you may see it greater than the max response time">90%ile (ms)</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="ninetyninth_response_time" title="Ninety Ninth percentile response time, because the response time greater than 100ms is rounded, you may see it greater than the max response time">99%ile (ms)</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="avg_response_time" title="Average response time">Average (ms)</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="min_response_time" title="Min response time">Min (ms)</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="max_response_time" title="Max response time">Max (ms)</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="avg_content_length" title="Average response size">Average size (bytes)</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="current_rps" title="Current number of requests per second">Current RPS</th>
+                            <th class="stats_label numeric" href="#" data-sortkey="current_fail_per_sec" title="Current number of failures per second">Current Failures/s</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+            <div id="charts" style="display:none;">
+                <div class="charts-container"></div>
+                <p class="note">Note: There is no persistence of these charts, if you refresh this page, new charts will be created.</p>
+            </div>
+            <div style="display:none;">
+                <table id="errors" class="stats">
+                    <thead>
+                        <th class="error_count stats_label" data-sortkey="occurrences"># fails</th>
+                        <th class="stats_label" href="#" data-sortkey="method">Method</th>
+                        <th class="stats_label" href="#" data-sortkey="name">Name</th>
+                        <th class="error_type stats_label" data-sortkey="error">Type</th>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+            <div style="display:none;">
+                <table id="exceptions" class="stats">
+                    <thead>
+                        <th class="exception_occurrences stats_label"># occurrences</th>
+                        <th class="exception_traceback stats_label">Traceback</th>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+            <div style="display:none;">
+                <div style="margin-top:20px;">
+                    <a href="./stats/requests/csv">Download request statistics CSV</a><br>
+                    {% if stats_history_enabled %}
+                        <a href="./stats/requests_full_history/csv">Download full request statistics history CSV</a><br>
+                    {% endif %}
+                    <a href="./stats/failures/csv">Download failures CSV</a><br>
+                    <a href="./exceptions/csv">Download exceptions CSV</a><br>
+                    <a href="./stats/report" target="_blank">Download Report</a><br>
                 </div>
+            </div>
+            {% if is_distributed %}
                 <div style="display:none;">
-                    <table id="exceptions" class="stats">
-                        <thead>
-                            <th class="exception_occurrences stats_label" data-sortkey="1"># occurrences</th>
-                            <th class="exception_traceback stats_label" data-sortkey="0">Traceback</th>
-                        </thead>
-                        <tbody>
-                        </tbody>
-                    </table>
-                </div>
-                <div style="display:none;">
-                    <div style="margin-top:20px;">
-                        <a href="./stats/requests/csv">Download request statistics CSV</a><br>
-                        <a href="./stats/stats_history/csv">Download response time stats history CSV</a><br>
-                        <a href="./stats/failures/csv">Download failures CSV</a><br>
-                        <a href="./exceptions/csv">Download exceptions CSV</a>
-                    </div>
-                </div>
-                <div style="display:none;">
-                    <table id="slaves">
+                    <table class="stats" id="workers">
                         <thead>
                             <tr>
-                                <th class="stats_label" href="#" data-sortkey="id">Slave</th>
+                                <th class="stats_label" href="#" data-sortkey="id">Worker</th>
                                 <th class="stats_label" href="#" data-sortkey="state">State</th>
-                                <th class="stats_label numeric" href="#" data-sortkey="user_count" title="Number of users on this slave"># users</th>
+                                <th class="stats_label numeric" href="#" data-sortkey="user_count" title="Number of users on this worker"># users</th>
                                 <th class="stats_label numeric" href="#" data-sortkey="cpu_usage" title="CPU usage of process">CPU usage</th>
                             </tr>
                         </thead>
@@ -189,7 +203,8 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
+            {% endif %}
+            {% block extended_panes %}{% endblock extended_panes %}
         </div>
 
         <div class="about" style="display:none;">
@@ -241,7 +256,7 @@
     <script type="text/javascript" src="./static/vintage.js"></script>
     <script type="text/x-jqote-template" id="stats-template">
         <![CDATA[
-        <tr class="<%=(alternate ? "dark" : "")%> <%=(this.is_aggregated ? "total" : "")%>">
+        <tr class="<%=(this.is_aggregated ? "total" : "")%>">
             <td><%= (this.method ? this.method : "") %></td>
             <td class="name" title="<%= this.name %>"><%= this.safe_name %></td>
             <td class="numeric"><%= this.num_requests %></td>
@@ -261,7 +276,7 @@
     </script>
     <script type="text/x-jqote-template" id="errors-template">
         <![CDATA[
-        <tr class="<%=(alternate ? "dark" : "")%>">
+        <tr>
             <td><%= this.occurrences %></td>
             <td><%= this.method %></td>
             <td><%= this.name %></td>
@@ -272,17 +287,17 @@
     </script>
     <script type="text/x-jqote-template" id="exceptions-template">
         <![CDATA[
-        <tr class="<%=(alternate ? "dark" : "")%>">
+        <tr>
             <td class="occurrences"><%= this.count %></td>
-            <td class="traceback" title="Occured on: <%= this.nodes %>"><%= function(e) { return e.replace("<", "&lt;"); }(this.traceback) %>
+            <td class="traceback" title="Occurred on: <%= this.nodes %>"><%= function(e) { return e.replace("<", "&lt;"); }(this.traceback) %>
 <%= function(e) { return e.replace("<", "&lt;"); }(this.msg) %></td>
         </tr>
         <% alternate = !alternate; %>
         ]]>
     </script>
-    <script type="text/x-jqote-template" id="slave-template">
+    <script type="text/x-jqote-template" id="worker-template">
         <![CDATA[
-        <tr class="<%=(alternate ? "dark" : "")%> <%=(this.name == "Total" ? "total" : "")%>">
+        <tr class="<%=(this.name == "Total" ? "total" : "")%>">
             <td><%= this.id %></td>
             <td><%= this.state %></td>
             <td class="numeric"><%= this.user_count %></td>
@@ -293,5 +308,7 @@
     </script>
     <script type="text/javascript" src="./static/chart.js?v={{ version }}"></script>
     <script type="text/javascript" src="./static/locust.js?v={{ version }}"></script>
+    {% block extended_script %}
+    {% endblock extended_script %}
 </body>
 </html>
