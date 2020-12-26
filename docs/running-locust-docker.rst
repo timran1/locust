@@ -4,59 +4,41 @@
 Running Locust with Docker
 =================================
 
-To keep things simple we provide a single Docker image that can run standalone, as a master, or as a worker.
+The official Docker image is currently found at `locustio/locust <https://hub.docker.com/r/locustio/locust>`_.
 
-Environment Variables
----------------------------------------------
+The docker image can be used like this (assuming that the ``locustfile.py`` exists in the current working directory)::
 
-- ``LOCUST_MODE``
+    docker run -p 8089:8089 -v $PWD:/mnt/locust locustio/locust -f /mnt/locust/locustfile.py
 
-One of 'standalone', 'master', or 'worker'. Defaults to 'standalone'.
 
-- ``LOCUSTFILE_PATH``
+Docker Compose
+==============
 
-The path inside the container to the locustfile. Defaults to '/locustfile.py'
+Here's an example Docker Compose file that could be used to start both a master node, and worker nodes:
 
-- ``LOCUST_MASTER_HOST``
+.. literalinclude:: ../examples/docker-compose/docker-compose.yml
+    :language: yaml
 
-The hostname of the master.
+The above compose configuration could be used to start a master node and 4 workers using the following command::
 
-- ``LOCUST_MASTER_PORT``
+    docker-compose up --scale worker=4
 
-The port used to communicate with the master. Defaults to 5557.
 
-- ``LOCUST_OPTS``
+Use docker image as a base image
+================================
 
-Additional options to pass to locust. Defaults to ''
-
-Running your tests
----------------------------------------------
-
-The easiest way to get your tests running is to build an image with your test file built in. Once you've
-written your locustfile you can bake it into a Docker image with a simple ``Dockerfile``:
-
-.. code-block:: docker
+It's very common to have test scripts that rely on third party python packages. In those cases you can use the
+official Locust docker image as a base image::
 
     FROM locustio/locust
-    ADD locustfile.py locustfile.py
+    RUN pip3 install some-python-package
 
 
-You'll need to push the built image to a Docker repository such as Dockerhub, AWS ECR, or GCR in order for
-distributed infrastructure to be able to pull the image. See your chosen repository's documentation on how
-to authenticate with the repository to pull the image.
+Running a distributed load test on Kubernetes
+=============================================
 
-For debugging locally you can run a container and pass your locustfile in as a volume:
+The easiest way to run Locust on Kubernetes is to use a Helm chart. A Helm chart will package all settings and kubernetes resources together into an easy to manage way.
 
-.. code-block:: console
+Currently the most up to date Helm chart is here: `github.com/deliveryhero/helm-charts <https://github.com/deliveryhero/helm-charts/tree/master/stable/locust>`_
 
-    docker run -p 8089:8089 --volume $PWD/dir/of/locustfile:/mnt/locust -e LOCUSTFILE_PATH=/mnt/locust/locustfile.py -e TARGET_URL=https://abc.com locustio/locust
-
-
-To run in standalone mode without the web UI, you can use the ``LOCUST_OPTS`` environment variable to add the required options:
-
-.. code-block:: console
-
-    docker run --volume $PWD/dir/of/locustfile:/mnt/locust -e LOCUSTFILE_PATH=/mnt/locust/locustfile.py -e TARGET_URL=https://abc.com -e LOCUST_OPTS="--clients=10 --no-web --run-time=600" locustio/locust
-
-
-If you are Kubernetes user, you can use the `Helm chart <https://github.com/helm/charts/tree/master/stable/locust>`_ to scale and run locust.
+Note: this Helm chart is not maintained or supported directly by Locust maintainers.

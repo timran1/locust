@@ -3,40 +3,41 @@ API
 ###
 
 
-Locust class
+User class
 ============
 
-.. autoclass:: locust.core.Locust
-    :members: wait_time, tasks, weight, abstract, on_start, on_stop
+.. autoclass:: locust.User
+    :members: wait_time, tasks, weight, abstract, on_start, on_stop, wait
 
-HttpLocust class
+HttpUser class
 ================
 
-.. autoclass:: locust.core.HttpLocust
+.. autoclass:: locust.HttpUser
     :members: wait_time, tasks, client, abstract
 
 
 TaskSet class
 =============
 
-.. autoclass:: locust.core.TaskSet
-    :members: locust, parent, wait_time, client, tasks, interrupt, schedule_task, on_start, on_stop
+.. autoclass:: locust.TaskSet
+    :members: user, parent, wait_time, client, tasks, interrupt, schedule_task, on_start, on_stop, wait
 
 task decorator
 ==============
 
-.. autofunction:: locust.core.task
+.. autofunction:: locust.task
 
-TaskSequence class
-==================
+tag decorator
+==============
 
-.. autoclass:: locust.core.TaskSequence
-    :members: locust, parent, wait_time, client, tasks, interrupt, schedule_task, on_start, on_stop
+.. autofunction:: locust.tag
 
-seq_task decorator
-==================
+SequentialTaskSet class
+=======================
 
-.. autofunction:: locust.core.seq_task
+.. autoclass:: locust.SequentialTaskSet
+    :members: user, parent, wait_time, client, tasks, interrupt, schedule_task, on_start, on_stop
+
 
 .. _wait_time_functions:
 
@@ -72,9 +73,18 @@ ResponseContextManager class
     :members: success, failure
 
 
-InterruptTaskSet Exception
-==========================
+.. _exceptions:
+
+Exceptions
+==========
+
 .. autoexception:: locust.exception.InterruptTaskSet
+
+
+.. autoexception:: locust.exception.RescheduleTask
+
+
+.. autoexception:: locust.exception.RescheduleTaskImmediately
 
 
 Environment class
@@ -88,7 +98,7 @@ Environment class
 Event hooks
 ===========
 
-Locust provide event hooks that can be used to extend Locus in various ways. 
+Locust provides event hooks that can be used to extend Locust in various ways.
 
 The following event hooks are available under :py:attr:`Environment.events <locust.env.Environment.events>`, 
 and there's also a reference to these events under ``locust.events`` that can be used at the module level 
@@ -109,3 +119,23 @@ The event hooks are instances of the **locust.events.EventHook** class:
 
     It's highly recommended that you add a wildcard keyword argument in your event listeners
     to prevent your code from breaking if new arguments are added in a future version.
+
+
+Runner classes
+=====================
+
+.. autoclass:: locust.runners.Runner
+    :members: start, stop, quit, user_count
+
+.. autoclass:: locust.runners.LocalRunner
+
+.. autoclass:: locust.runners.MasterRunner
+
+.. autoclass:: locust.runners.WorkerRunner
+
+
+Web UI class
+============
+
+.. autoclass:: locust.web.WebUI
+    :members:

@@ -11,31 +11,38 @@ import gevent
 
 import locust
 
-from .event import Events
+from . import log
 from .argument_parser import parse_locustfile_option, parse_options
-from .core import HttpLocust, Locust
 from .env import Environment
-from .inspectlocust import get_task_ratio_dict, print_task_ratio
-from .log import console_logger, setup_logging
-from .runners import LocalLocustRunner, MasterLocustRunner, WorkerLocustRunner
-from .stats import (print_error_report, print_percentile_stats, print_stats,
-                    stats_printer, stats_writer, write_stat_csvs)
+from .log import setup_logging, greenlet_exception_logger
+from . import stats
+from .stats import print_error_report, print_percentile_stats, print_stats, stats_printer, stats_history
+from .stats import StatsCSV, StatsCSVFileWriter
+from .user import User
+from .user.inspectuser import get_task_ratio_dict, print_task_ratio
 from .util.timespan import parse_timespan
-from .web import WebUI
+from .exception import AuthCredentialsError
+from .shape import LoadTestShape
+from .input_events import input_listener
+from .html import get_html_report
 
-_internals = [Locust, HttpLocust]
+
 version = locust.__version__
 
 
-def is_locust(tup):
+def is_user_class(item):
     """
-    Takes (name, object) tuple, returns True if it's a public Locust subclass.
+    Check if a variable is a runnable (non-abstract) User class
     """
-    name, item = tup
+    return bool(inspect.isclass(item) and issubclass(item, User) and item.abstract is False)
+
+
+def is_shape_class(item):
+    """
+    Check if a class is a LoadTestShape
+    """
     return bool(
-        inspect.isclass(item)
-        and issubclass(item, Locust)
-        and item.abstract == False
+        inspect.isclass(item) and issubclass(item, LoadTestShape) and item.__dict__["__module__"] != "locust.shape"
     )
 
 
@@ -47,13 +54,6 @@ def load_locustfile(path):
     dictionary of ``{'name': callable}`` containing all callables which pass
     the "is a Locust" test.
     """
-
-    def __import_locustfile__(filename, path):
-        """
-        Loads the locust file as a module, similar to performing `import`
-        """
-        source = importlib.machinery.SourceFileLoader(os.path.splitext(locustfile)[0], path)
-        return  source.load_module()
 
     # Start with making sure the current working dir is in the sys.path
     sys.path.insert(0, os.getcwd())
@@ -77,7 +77,8 @@ def load_locustfile(path):
             sys.path.insert(0, directory)
             del sys.path[i + 1]
     # Perform the import
-    imported = __import_locustfile__(locustfile, path)
+    source = importlib.machinery.SourceFileLoader(os.path.splitext(locustfile)[0], path)
+    imported = source.load_module()
     # Remove directory from path if we added it ourselves (just to be neat)
     if added_to_path:
         del sys.path[0]
@@ -86,21 +87,32 @@ def load_locustfile(path):
         sys.path.insert(index + 1, directory)
         del sys.path[0]
     # Return our two-tuple
-    locusts = dict(filter(is_locust, vars(imported).items()))
-    return imported.__doc__, locusts
+    user_classes = {name: value for name, value in vars(imported).items() if is_user_class(value)}
+
+    # Find shape class, if any, return it
+    shape_classes = [value for name, value in vars(imported).items() if is_shape_class(value)]
+    if shape_classes:
+        shape_class = shape_classes[0]()
+    else:
+        shape_class = None
+
+    return imported.__doc__, user_classes, shape_class
 
 
-def create_environment(options, events=None):
+def create_environment(user_classes, options, events=None, shape_class=None):
     """
     Create an Environment instance from options
     """
     return Environment(
+        user_classes=user_classes,
+        shape_class=shape_class,
+        tags=options.tags,
+        exclude_tags=options.exclude_tags,
         events=events,
         host=options.host,
-        options=options,
         reset_stats=options.reset_stats,
-        step_load=options.step_load,
         stop_timeout=options.stop_timeout,
+        parsed_options=options,
     )
 
 
@@ -108,106 +120,135 @@ def main():
     # find specified locustfile and make sure it exists, using a very simplified
     # command line parser that is only used to parse the -f option
     locustfile = parse_locustfile_option()
-    
+
     # import the locustfile
-    docstring, locusts = load_locustfile(locustfile)
-    
+    docstring, user_classes, shape_class = load_locustfile(locustfile)
+
     # parse all command line options
     options = parse_options()
 
+    if options.headful:
+        options.headless = False
+
     if options.slave or options.expect_slaves:
-        sys.stderr.write("[DEPRECATED] Usage of slave has been deprecated, use --worker or --expect-workers\n")
+        sys.stderr.write("The --slave/--expect-slaves parameters have been renamed --worker/--expect-workers\n")
         sys.exit(1)
-    
+
+    if options.step_time or options.step_load or options.step_users or options.step_clients:
+        sys.stderr.write(
+            "The step load feature was removed in Locust 1.3. You can achieve similar results using a LoadTestShape class. See https://docs.locust.io/en/stable/generating-custom-load-shape.html\n"
+        )
+        sys.exit(1)
+
+    if options.hatch_rate:
+        sys.stderr.write("[DEPRECATED] The --hatch-rate parameter has been renamed --spawn-rate\n")
+        options.spawn_rate = options.hatch_rate
+
     # setup logging
     if not options.skip_log_setup:
-        setup_logging(options.loglevel, options.logfile)
+        if options.loglevel.upper() in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+            setup_logging(options.loglevel, options.logfile)
+        else:
+            sys.stderr.write("Invalid --loglevel. Valid values are: DEBUG/INFO/WARNING/ERROR/CRITICAL\n")
+            sys.exit(1)
 
     logger = logging.getLogger(__name__)
+    greenlet_exception_handler = greenlet_exception_logger(logger)
 
     if options.list_commands:
-        console_logger.info("Available Locusts:")
-        for name in locusts:
-            console_logger.info("    " + name)
+        print("Available Users:")
+        for name in user_classes:
+            print("    " + name)
         sys.exit(0)
 
-    if not locusts:
-        logger.error("No Locust class found!")
+    if not user_classes:
+        logger.error("No User class found!")
         sys.exit(1)
 
-    # make sure specified Locust exists
-    if options.locust_classes:
-        missing = set(options.locust_classes) - set(locusts.keys())
+    # make sure specified User exists
+    if options.user_classes:
+        missing = set(options.user_classes) - set(user_classes.keys())
         if missing:
-            logger.error("Unknown Locust(s): %s\n" % (", ".join(missing)))
+            logger.error("Unknown User(s): %s\n" % (", ".join(missing)))
             sys.exit(1)
         else:
-            names = set(options.locust_classes) & set(locusts.keys())
-            locust_classes = [locusts[n] for n in names]
+            names = set(options.user_classes) & set(user_classes.keys())
+            user_classes = [user_classes[n] for n in names]
     else:
         # list() call is needed to consume the dict_view object in Python 3
-        locust_classes = list(locusts.values())
-    
+        user_classes = list(user_classes.values())
+
+    if os.name != "nt" and not options.master:
+
+        try:
+            import resource
+
+            minimum_open_file_limit = 10000
+            current_open_file_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+
+            if current_open_file_limit < minimum_open_file_limit:
+                # Increasing the limit to 10000 within a running process should work on at least MacOS.
+                # It does not work on all OS:es, but we should be no worse off for trying.
+                resource.setrlimit(resource.RLIMIT_NOFILE, [minimum_open_file_limit, resource.RLIM_INFINITY])
+        except BaseException:
+            logger.warning(
+                (
+                    f"System open file limit '{current_open_file_limit}' is below minimum setting '{minimum_open_file_limit}'. "
+                    "It's not high enough for load testing, and the OS didn't allow locust to increase it by itself. "
+                    "See https://github.com/locustio/locust/wiki/Installation#increasing-maximum-number-of-open-files-limit for more info."
+                )
+            )
+
     # create locust Environment
-    environment = create_environment(options, events=locust.events)
-    
+    environment = create_environment(user_classes, options, events=locust.events, shape_class=shape_class)
+
+    if shape_class and (options.num_users or options.spawn_rate):
+        logger.warning(
+            "The specified locustfile contains a shape class but a conflicting argument was specified: users or spawn-rate. Ignoring arguments"
+        )
+
     if options.show_task_ratio:
-        console_logger.info("\n Task ratio per locust class")
-        console_logger.info( "-" * 80)
-        print_task_ratio(locust_classes)
-        console_logger.info("\n Total task ratio")
-        console_logger.info("-" * 80)
-        print_task_ratio(locust_classes, total=True)
+        print("\n Task ratio per User class")
+        print("-" * 80)
+        print_task_ratio(user_classes)
+        print("\n Total task ratio")
+        print("-" * 80)
+        print_task_ratio(user_classes, total=True)
         sys.exit(0)
     if options.show_task_ratio_json:
         from json import dumps
+
         task_data = {
-            "per_class": get_task_ratio_dict(locust_classes), 
-            "total": get_task_ratio_dict(locust_classes, total=True)
+            "per_class": get_task_ratio_dict(user_classes),
+            "total": get_task_ratio_dict(user_classes, total=True),
         }
-        console_logger.info(dumps(task_data))
+        print(dumps(task_data))
         sys.exit(0)
 
-    if options.step_time:
-        if not options.step_load:
-            logger.error("The --step-time argument can only be used together with --step-load")
-            sys.exit(1)
-        if options.worker:
-            logger.error("--step-time should be specified on the master node, and not on worker nodes")
-            sys.exit(1)
-        try:
-            options.step_time = parse_timespan(options.step_time)
-        except ValueError:
-            logger.error("Valid --step-time formats are: 20, 20s, 3m, 2h, 1h20m, 3h30m10s, etc.")
-            sys.exit(1)
-    
     if options.master:
-        runner = MasterLocustRunner(
-            environment, 
-            locust_classes,
+        if options.worker:
+            logger.error("The --master argument cannot be combined with --worker")
+            sys.exit(-1)
+        runner = environment.create_master_runner(
             master_bind_host=options.master_bind_host,
             master_bind_port=options.master_bind_port,
         )
     elif options.worker:
         try:
-            runner = WorkerLocustRunner(
-                environment, 
-                locust_classes,
-                master_host=options.master_host,
-                master_port=options.master_port,
-            )
+            runner = environment.create_worker_runner(options.master_host, options.master_port)
+            logger.debug("Connected to locust master: %s:%s", options.master_host, options.master_port)
         except socket.error as e:
             logger.error("Failed to connect to the Locust master: %s", e)
             sys.exit(-1)
     else:
-        runner = LocalLocustRunner(environment, locust_classes)
-    
+        runner = environment.create_local_runner()
+
     # main_greenlet is pointing to runners.greenlet by default, it will point the web greenlet later if in web mode
     main_greenlet = runner.greenlet
-    
+
     if options.run_time:
-        if not options.no_web:
-            logger.error("The --run-time argument can only be used together with --no-web")
+        if not options.headless:
+            logger.error("The --run-time argument can only be used together with --headless")
             sys.exit(1)
         if options.worker:
             logger.error("--run-time should be specified on the master node, and not on worker nodes")
@@ -217,84 +258,176 @@ def main():
         except ValueError:
             logger.error("Valid --run-time formats are: 20, 20s, 3m, 2h, 1h20m, 3h30m10s, etc.")
             sys.exit(1)
-        def spawn_run_time_limit_greenlet():
-            logger.info("Run time limit set to %s seconds" % options.run_time)
-            def timelimit_stop():
-                logger.info("Time limit reached. Stopping Locust.")
-                runner.quit()
-            gevent.spawn_later(options.run_time, timelimit_stop)
-    
+
+    if options.csv_prefix:
+        stats_csv_writer = StatsCSVFileWriter(
+            environment, stats.PERCENTILES_TO_REPORT, options.csv_prefix, options.stats_history_enabled
+        )
+    else:
+        stats_csv_writer = StatsCSV(environment, stats.PERCENTILES_TO_REPORT)
+
     # start Web UI
-    if not options.no_web and not options.worker:
+    if not options.headless and not options.worker:
         # spawn web greenlet
-        logger.info("Starting web monitor at http://%s:%s" % (options.web_host or "*", options.web_port))
-        web_ui = WebUI(environment=environment)
-        main_greenlet = gevent.spawn(web_ui.start, host=options.web_host, port=options.web_port)
+        protocol = "https" if options.tls_cert and options.tls_key else "http"
+        try:
+            if options.web_host == "*":
+                # special check for "*" so that we're consistent with --master-bind-host
+                web_host = ""
+            else:
+                web_host = options.web_host
+            if web_host:
+                logger.info("Starting web interface at %s://%s:%s" % (protocol, web_host, options.web_port))
+            else:
+                logger.info(
+                    "Starting web interface at %s://0.0.0.0:%s (accepting connections from all network interfaces)"
+                    % (protocol, options.web_port)
+                )
+            web_ui = environment.create_web_ui(
+                host=web_host,
+                port=options.web_port,
+                auth_credentials=options.web_auth,
+                tls_cert=options.tls_cert,
+                tls_key=options.tls_key,
+                stats_csv_writer=stats_csv_writer,
+                delayed_start=True,
+            )
+        except AuthCredentialsError:
+            logger.error("Credentials supplied with --web-auth should have the format: username:password")
+            sys.exit(1)
     else:
         web_ui = None
-    
+
     # Fire locust init event which can be used by end-users' code to run setup code that
-    # need access to the Environment, Runner or WebUI
-    environment.events.init.fire(environment=environment, runner=runner, web_ui=web_ui)    
-    
-    if options.no_web:
+    # need access to the Environment, Runner or WebUI.
+    environment.events.init.fire(environment=environment, runner=runner, web_ui=web_ui)
+
+    if web_ui:
+        web_ui.start()
+        main_greenlet = web_ui.greenlet
+
+    if options.headless:
         # headless mode
         if options.master:
-            # what for worker nodes to connect
+            # wait for worker nodes to connect
             while len(runner.clients.ready) < options.expect_workers:
-                logging.info("Waiting for workers to be ready, %s of %s connected",
-                             len(runner.clients.ready), options.expect_workers)
+                logging.info(
+                    "Waiting for workers to be ready, %s of %s connected",
+                    len(runner.clients.ready),
+                    options.expect_workers,
+                )
                 time.sleep(1)
         if not options.worker:
+            # apply headless mode defaults
+            if options.num_users is None:
+                options.num_users = 1
+            if options.spawn_rate is None:
+                options.spawn_rate = 1
+
             # start the test
-            if options.step_time:
-                runner.start_stepload(options.num_clients, options.hatch_rate, options.step_clients, options.step_time)
+            if environment.shape_class:
+                environment.runner.start_shape()
             else:
-                runner.start(options.num_clients, options.hatch_rate)
-    
+                runner.start(options.num_users, options.spawn_rate)
+
+    def spawn_run_time_limit_greenlet():
+        def timelimit_stop():
+            logger.info("Time limit reached. Stopping Locust.")
+            runner.quit()
+
+        gevent.spawn_later(options.run_time, timelimit_stop).link_exception(greenlet_exception_handler)
+
     if options.run_time:
+        logger.info("Run time limit set to %s seconds" % options.run_time)
         spawn_run_time_limit_greenlet()
+    elif options.headless:
+        logger.info("No run time limit set, use CTRL+C to interrupt.")
+    else:
+        pass  # dont log anything - not having a time limit is normal when not running headless
+
+    input_listener_greenlet = None
+    if not options.worker:
+        # spawn input listener greenlet
+        input_listener_greenlet = gevent.spawn(
+            input_listener(
+                {
+                    "w": lambda: runner.spawn_users(1, 100)
+                    if runner.state != "spawning"
+                    else logging.warning("Already spawning users, can't spawn more right now"),
+                    "W": lambda: runner.spawn_users(10, 100)
+                    if runner.state != "spawning"
+                    else logging.warning("Already spawning users, can't spawn more right now"),
+                    "s": lambda: runner.stop_users(1)
+                    if runner.state != "spawning"
+                    else logging.warning("Spawning users, can't stop right now"),
+                    "S": lambda: runner.stop_users(10)
+                    if runner.state != "spawning"
+                    else logging.warning("Spawning users, can't stop right now"),
+                }
+            )
+        )
+        input_listener_greenlet.link_exception(greenlet_exception_handler)
 
     stats_printer_greenlet = None
-    if not options.only_summary and (options.print_stats or (options.no_web and not options.worker)):
+    if not options.only_summary and (options.print_stats or (options.headless and not options.worker)):
         # spawn stats printing greenlet
         stats_printer_greenlet = gevent.spawn(stats_printer(runner.stats))
+        stats_printer_greenlet.link_exception(greenlet_exception_handler)
 
-    if options.csvfilebase:
-        gevent.spawn(stats_writer, runner.stats, options.csvfilebase, options.stats_history_enabled)
+    if options.csv_prefix:
+        gevent.spawn(stats_csv_writer.stats_writer).link_exception(greenlet_exception_handler)
 
-    
-    def shutdown(code=0):
+    gevent.spawn(stats_history, runner)
+
+    def shutdown():
         """
         Shut down locust by firing quitting event, printing/writing stats and exiting
         """
+        logger.info("Running teardowns...")
+
+        if input_listener_greenlet is not None:
+            input_listener_greenlet.kill(block=False)
+
+        environment.events.quitting.fire(environment=environment, reverse=True)
+
+        # determine the process exit code
+        if log.unhandled_greenlet_exception:
+            code = 2
+        elif environment.process_exit_code is not None:
+            code = environment.process_exit_code
+        elif len(runner.errors) or len(runner.exceptions):
+            code = options.exit_code_on_error
+        else:
+            code = 0
+
         logger.info("Shutting down (exit code %s), bye." % code)
         if stats_printer_greenlet is not None:
             stats_printer_greenlet.kill(block=False)
         logger.info("Cleaning up runner...")
         if runner is not None:
             runner.quit()
-        logger.info("Running teardowns...")
-        environment.events.quitting.fire(reverse=True)
+
         print_stats(runner.stats, current=False)
         print_percentile_stats(runner.stats)
-        if options.csvfilebase:
-            write_stat_csvs(runner.stats, options.csvfilebase, options.stats_history_enabled)
+
         print_error_report(runner.stats)
+
         sys.exit(code)
-    
+
     # install SIGTERM handler
     def sig_term_handler():
         logger.info("Got SIGTERM signal")
-        shutdown(0)
-    gevent.signal(signal.SIGTERM, sig_term_handler)
-    
+        shutdown()
+
+    gevent.signal_handler(signal.SIGTERM, sig_term_handler)
+
     try:
         logger.info("Starting Locust %s" % version)
         main_greenlet.join()
-        code = 0
-        if len(runner.errors) or len(runner.exceptions):
-            code = options.exit_code_on_error
-        shutdown(code=code)
-    except KeyboardInterrupt as e:
-        shutdown(0)
+        if options.html_file:
+            html_report = get_html_report(environment, show_download_link=False)
+            with open(options.html_file, "w+") as file:
+                file.write(html_report)
+        shutdown()
+    except KeyboardInterrupt:
+        shutdown()

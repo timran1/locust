@@ -3,6 +3,8 @@ locust.wpr
 locust.egg-info/**
 locustio.egg-info/**
 docs/_build/**
+docs/cli-help-output.txt
+docs/config-options.rst
 mock.*.egg
 dist/**
 .idea/**
@@ -12,3 +14,8 @@ dist/**
 build/
 .coverage
 .tox/
+docs/env-options.rst
+.editorconfig
+__pycache__
+.pytest_cache
+.sass-cache/
