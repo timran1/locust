@@ -93,6 +93,9 @@ class User(object, metaclass=UserMeta):
             tasks = {ThreadPage:15, write_post:1}
     """
 
+    id = 0
+    """ID of this user. Used for spacing out tasks evenly in time."""
+
     weight = 10
     """Probability of user class being chosen. The higher the weight, the greater the chance of it being chosen."""
 

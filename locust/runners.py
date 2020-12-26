@@ -180,6 +180,7 @@ class Runner:
 
         def spawn():
             sleep_time = 1.0 / spawn_rate
+            _spawn_count = 0
             while True:
                 if not bucket:
                     logger.info(
@@ -189,12 +190,16 @@ class Runner:
                             len(self.user_greenlets),
                         )
                     )
+                    if not sorted([g.args[0].id for g in self.user_greenlets]) == list(range(len(self.user_greenlets))):
+                        logger.warning("User IDs are not consecutive.")
                     self.environment.events.spawning_complete.fire(user_count=len(self.user_greenlets))
                     return
 
                 user_class = bucket.pop(random.randint(0, len(bucket) - 1))
                 occurrence_count[user_class.__name__] += 1
                 new_user = user_class(self.environment)
+                new_user.id = existing_count + _spawn_count
+                _spawn_count += 1
                 new_user.start(self.user_greenlets)
                 if len(self.user_greenlets) % 10 == 0:
                     logger.debug("%i users spawned" % len(self.user_greenlets))
@@ -226,6 +231,12 @@ class Runner:
 
         if not to_stop:
             return
+
+        to_stop_ids = sorted([user.id for user in to_stop])
+        remaining_count = len(self.user_greenlets) - user_count
+        for g in self.user_greenlets:
+            if g.args[0].id >= remaining_count:
+                g.args[0].id = to_stop_ids.pop()
 
         if stop_rate is None or stop_rate >= user_count:
             sleep_time = 0
@@ -261,6 +272,9 @@ class Runner:
                 % self.environment.stop_timeout
             )
             stop_group.kill(block=True)
+
+        if not sorted([g.args[0].id for g in self.user_greenlets]) == list(range(len(self.user_greenlets))):
+            logger.warning("User IDs are not consecutive.")
 
         logger.info("%i Users have been stopped, %g still running" % (user_count, len(self.user_greenlets)))
 
@@ -612,7 +626,7 @@ class MasterRunner(DistributedRunner):
 
     def broadcast_timeslots(self):
         index = 0
-        num_clients = self.slave_count
+        num_clients = self.user_count
         for client in self.clients.all:
             timeslot_ratio = index/num_clients
             self.server.send_to_client(Message("timeslot_ratio", timeslot_ratio, client.id))
