@@ -626,9 +626,8 @@ class MasterRunner(DistributedRunner):
 
     def broadcast_timeslots(self):
         index = 0
-        num_clients = self.user_count
         for client in self.clients.all:
-            timeslot_ratio = index/num_clients
+            timeslot_ratio = index/len(self.clients)
             self.server.send_to_client(Message("timeslot_ratio", timeslot_ratio, client.id))
             index += 1
 
