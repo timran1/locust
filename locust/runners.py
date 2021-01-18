@@ -625,11 +625,13 @@ class MasterRunner(DistributedRunner):
                     client.heartbeat -= 1
 
     def broadcast_timeslots(self):
+        logging.info("Broadcasting timeslots to {} clients.".format(len(self.clients)))
         index = 0
         for client in self.clients.all:
             timeslot_ratio = index/len(self.clients)
             self.server.send_to_client(Message("timeslot_ratio", timeslot_ratio, client.id))
             index += 1
+        logging.info("Finished broadcasting timeslots to {} clients.".format(len(self.clients)))
 
     def reset_connection(self):
         logger.info("Reset connection to worker")
@@ -653,6 +655,7 @@ class MasterRunner(DistributedRunner):
             if msg.type == "client_ready":
                 id = msg.node_id
                 self.clients[id] = WorkerNode(id, heartbeat_liveness=HEARTBEAT_LIVENESS)
+                self.broadcast_timeslots()
                 logger.info(
                     "Client %r reported as ready. Currently %i clients ready to swarm."
                     % (id, len(self.clients.ready + self.clients.running + self.clients.spawning))
@@ -663,7 +666,6 @@ class MasterRunner(DistributedRunner):
                 # emit a warning if the worker's clock seem to be out of sync with our clock
                 # if abs(time() - msg.data["time"]) > 5.0:
                 #    warnings.warn("The worker node's clock seem to be out of sync. For the statistics to be correct the different locust servers need to have synchronized clocks.")
-                self.broadcast_timeslots()
             elif msg.type == "client_stopped":
                 del self.clients[msg.node_id]
                 logger.info("Removing %s client from running clients" % (msg.node_id))
