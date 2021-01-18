@@ -732,7 +732,6 @@ class WorkerRunner(DistributedRunner):
         self.timeslot_ratio = 0
         self.master_host = master_host
         self.master_port = master_port
-        self.timeslot_ratio = 0
         self.client = rpc.Client(master_host, master_port, self.client_id)
         self.greenlet.spawn(self.heartbeat).link_exception(greenlet_exception_handler)
         self.greenlet.spawn(self.worker).link_exception(greenlet_exception_handler)
@@ -822,6 +821,7 @@ class WorkerRunner(DistributedRunner):
                 self.greenlet.kill(block=True)
             elif msg.type == "timeslot_ratio":
                 self.timeslot_ratio = msg.data
+                logger.info("Received timeslot_ratio={}".format(self.timeslot_ratio))
 
     def stats_reporter(self):
         while True:
