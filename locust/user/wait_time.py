@@ -91,7 +91,7 @@ def constant_uniform(wait_time):
         user_offset = wait_time / n_users * locust_id
 
         worker_offset = 0
-        if (type(self.environment.runner) == "locust.runners.WorkerRunner"):
+        if (str(type(self.environment.runner)) == "<class 'locust.runners.WorkerRunner'>"):
             worker_offset = self.environment.runner.timeslot_ratio * wait_time / n_users
 
         wall_clock = monotonic() + worker_offset + user_offset
@@ -141,7 +141,7 @@ def poisson(lambda_value):
         user_offset = wait_time / n_users * locust_id
 
         worker_offset = 0
-        if (type(self.environment.runner) == "locust.runners.WorkerRunner"):
+        if (str(type(self.environment.runner)) == "<class 'locust.runners.WorkerRunner'>"):
             worker_offset = self.environment.runner.timeslot_ratio * wait_time / n_users
 
         next_trigger_target = random_exponential(lambda_value) + lambda_value
