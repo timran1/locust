@@ -631,7 +631,6 @@ class MasterRunner(DistributedRunner):
             timeslot_ratio = index/len(self.clients)
             self.server.send_to_client(Message("timeslot_ratio", timeslot_ratio, client.id))
             index += 1
-        logging.info("Finished broadcasting timeslots to {} clients.".format(len(self.clients)))
 
     def reset_connection(self):
         logger.info("Reset connection to worker")
