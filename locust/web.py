@@ -9,6 +9,7 @@ from html import escape
 from io import StringIO
 from itertools import chain
 from time import time
+from os import PathLike
 
 import gevent
 from flask import Flask, make_response, jsonify, render_template, request, send_file
@@ -222,6 +223,22 @@ class WebUI:
                 )
 
             return make_response("Error: Server was not started with option to generate full history.", 404)
+
+        @app.route("/stats/shape_results/csv")
+        @self.auth_required_if_enabled
+        def shape_results_csv():
+            if os.path.exists("locust_shape_results.csv"):
+                return send_file(
+                    os.path.abspath("locust_shape_results.csv"),
+                    mimetype="text/csv",
+                    as_attachment=True,
+                    add_etags=True,
+                    cache_timeout=None,
+                    conditional=True,
+                    last_modified=None,
+                )
+            else:
+                return make_response("Error: Shape results CSV has not been generated yet.", 404)
 
         @app.route("/stats/failures/csv")
         @self.auth_required_if_enabled

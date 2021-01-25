@@ -95,6 +95,8 @@ class Environment:
 
         self._filter_tasks_by_tags()
 
+        self.shape_class.set_environment(self)
+
     def _create_runner(self, runner_class, *args, **kwargs):
         if self.runner is not None:
             raise RunnerAlreadyExistsError("Environment.runner already exists (%s)" % self.runner)

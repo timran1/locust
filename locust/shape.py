@@ -11,6 +11,9 @@ class LoadTestShape:
     def __init__(self):
         self.start_time = time.monotonic()
 
+    def set_environment(self, environment):
+        self.environment = environment
+
     def reset_time(self):
         """
         Resets start time back to 0
