@@ -84,6 +84,8 @@ class Environment:
 
         self.user_classes = user_classes
         self.shape_class = shape_class
+        if self.shape_class:
+            self.shape_class.set_environment(self)
         self.tags = tags
         self.exclude_tags = exclude_tags
         self.stats = RequestStats()
@@ -94,8 +96,6 @@ class Environment:
         self.parsed_options = parsed_options
 
         self._filter_tasks_by_tags()
-
-        self.shape_class.set_environment(self)
 
     def _create_runner(self, runner_class, *args, **kwargs):
         if self.runner is not None:
